@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Only these sign-in emails can manage the business.
+    // EDIT THIS LIST before publishing the rules.
+    function staff() {
+      return request.auth != null
+        && request.auth.token.email in ['noor.chakki786@gmail.com'];
+    }
+
+    // What a customer is allowed to submit when placing an order.
+    function validNewOrder() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['name', 'phone', 'items', 'total', 'status', 'orderNo', 'advanceReceived', 'advanceDue', 'createdMs'])
+        && d.keys().hasOnly(['name', 'phone', 'address', 'deliveryDate', 'deliveryTime', 'note', 'items', 'total',
+                             'advanceDue', 'status', 'advanceReceived', 'createdMs', 'createdAt', 'orderNo'])
+        && d.status == 'new'
+        && d.advanceReceived == false
+        && d.name is string && d.name.size() > 0 && d.name.size() < 100
+        && d.phone is string && d.phone.size() >= 7 && d.phone.size() < 25
+        && d.orderNo is string && d.orderNo.size() < 30
+        && (!('address' in d) || (d.address is string && d.address.size() < 400))
+        && (!('note' in d) || (d.note is string && d.note.size() < 500))
+        && d.items is list && d.items.size() > 0 && d.items.size() <= 60
+        && d.total is number && d.total >= 0 && d.total < 10000000
+        && d.advanceDue is number && d.advanceDue >= 0 && d.advanceDue <= d.total
+        && d.createdMs is number;
+    }
+
+    // A customer may only attach a payment slip (a JPEG photo) and the payment-app name to an open order.
+    function slipUpdate() {
+      let d = request.resource.data;
+      return d.diff(resource.data).affectedKeys().hasOnly(['slip', 'payApp', 'slipAt'])
+        && (!('slip' in d) || (d.slip is string && d.slip.size() < 800000 && d.slip.matches('data:image/jpeg;base64,.*')))
+        && (!('payApp' in d) || (d.payApp is string && d.payApp.size() < 40))
+        && resource.data.status != 'delivered'
+        && resource.data.status != 'cancelled';
+    }
+
+    // Public: menu and shop details
+    match /settings/{id} { allow read: if true; allow write: if staff(); }
+    match /products/{id} { allow read: if true; allow write: if staff(); }
+
+    // Order-number counter: customers may only add exactly 1 to "orders"
+    match /meta/counter {
+      allow get: if true;
+      allow create, delete: if staff();
+      allow update: if staff()
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['orders'])
+            && request.resource.data.orders == resource.data.orders + 1);
+    }
+
+    // Orders: a customer can place one and open it by its (unguessable) id, but cannot list others
+    match /orders/{id} {
+      allow get: if true;
+      allow list, delete: if staff();
+      allow create: if staff() || validNewOrder();
+      allow update: if staff() || slipUpdate();
+    }
+
+    // Everything else is private to the business
+    match /{col}/{id} {
+      allow read, write: if staff();
+    }
+  }
+}

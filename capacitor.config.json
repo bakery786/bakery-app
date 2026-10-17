@@ -1,0 +1,7 @@
+{
+  "appId": "com.homebakery.manager",
+  "appName": "Bakery Manager",
+  "webDir": "public",
+  "server": { "androidScheme": "https" },
+  "android": { "allowMixedContent": false, "webContentsDebuggingEnabled": false }
+}
